@@ -277,12 +277,36 @@ export default function(api, clipboard, insert, normal, hints, visual, front, br
         }
     });
 
-    mapkey('yg', '#7Capture current page', function() {
+    const copyImageToClipboard = async (dataUrl) => {
+        if (!navigator.clipboard || !window.ClipboardItem) {
+            throw new Error("Image clipboard is not supported in this browser.");
+        }
+        const response = await fetch(dataUrl);
+        const blob = await response.blob();
+        await navigator.clipboard.write([
+            new ClipboardItem({ [blob.type]: blob })
+        ]);
+    };
+
+    const showCapturePreview = (dataUrl, message) => {
+        showPopup("<div>{0}</div><img src='{1}' />".format(message, dataUrl));
+        setTimeout(() => {
+            dispatchSKEvent("front", ['hidePopup']);
+        }, 3000);
+    };
+
+    mapkey('yg', '#7Capture current page', () => {
         front.toggleStatus(false);
-        setTimeout(function() {
-            RUNTIME('captureVisibleTab', null, function(response) {
+        setTimeout(() => {
+            RUNTIME('captureVisibleTab', null, (response) => {
                 front.toggleStatus(true);
-                showPopup("<img src='{0}' />".format(response.dataUrl));
+                if (!response || !response.dataUrl) {
+                    showPopup("<div>页面截图失败：浏览器未返回截图数据。</div>");
+                    return;
+                }
+                copyImageToClipboard(response.dataUrl)
+                    .then(() => showCapturePreview(response.dataUrl, "截图成功，已复制到剪贴板。"))
+                    .catch(() => showCapturePreview(response.dataUrl, "截图成功，但复制到剪贴板失败。"));
             });
         }, 500);
     });

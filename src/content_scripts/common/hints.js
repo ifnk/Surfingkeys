@@ -97,6 +97,14 @@ kbd {
         }
     });
 
+    self.mappings.add("cg", {
+        annotation: "capture target element",
+        feature_group: 17,
+        code: function() {
+            captureTargetElement(overlay.link);
+        }
+    });
+
     self.mappings.add("d", {
         annotation: "delete target element",
         feature_group: 17,
@@ -132,6 +140,100 @@ kbd {
     self.addEventListener('keydown', function(event) {
         Mode.handleMapKey.call(self, event);
     });
+
+    const copyImageToClipboard = async (dataUrl) => {
+        if (!navigator.clipboard || !window.ClipboardItem) {
+            throw new Error("Image clipboard is not supported in this browser.");
+        }
+        const response = await fetch(dataUrl);
+        const blob = await response.blob();
+        await navigator.clipboard.write([
+            new ClipboardItem({ [blob.type]: blob })
+        ]);
+    };
+
+    const showCapturePreview = (dataUrl, message) => {
+        dispatchSKEvent("front", ['showPopup', "<div>{0}</div><img src='{1}' />".format(message, dataUrl)]);
+        setTimeout(() => {
+            dispatchSKEvent("front", ['hidePopup']);
+        }, 3000);
+    };
+
+    const showCaptureError = (message) => {
+        dispatchSKEvent("front", ['showPopup', "<div>{0}</div>".format(message)]);
+        setTimeout(() => {
+            dispatchSKEvent("front", ['hidePopup']);
+        }, 3000);
+    };
+
+    const captureTargetElement = (target) => {
+        if (!target) {
+            return;
+        }
+        const rect = target.getBoundingClientRect();
+        const visibleLeft = Math.max(rect.left, 0);
+        const visibleTop = Math.max(rect.top, 0);
+        const visibleRight = Math.min(rect.right, window.innerWidth);
+        const visibleBottom = Math.min(rect.bottom, window.innerHeight);
+        const visibleWidth = visibleRight - visibleLeft;
+        const visibleHeight = visibleBottom - visibleTop;
+        if (visibleWidth <= 0 || visibleHeight <= 0) {
+            showCaptureError("元素当前不在可见区域，无法截图。");
+            return;
+        }
+
+        const previousDisplay = regionalHintsHost.style.display;
+        const restoreCaptureUi = () => {
+            regionalHintsHost.style.display = previousDisplay;
+            dispatchSKEvent("front", ['toggleStatus', true]);
+        };
+        const failCapture = (message) => {
+            restoreCaptureUi();
+            showCaptureError(message);
+        };
+        regionalHintsHost.style.display = "none";
+        dispatchSKEvent("front", ['toggleStatus', false]);
+        setTimeout(() => {
+            RUNTIME('captureVisibleTab', null, (response) => {
+                if (!response || !response.dataUrl) {
+                    failCapture("元素截图失败：浏览器未返回截图数据。");
+                    return;
+                }
+                const img = document.createElement("img");
+                img.onload = () => {
+                    const scaleX = img.width / window.innerWidth;
+                    const scaleY = img.height / window.innerHeight;
+                    const canvas = document.createElement("canvas");
+                    canvas.width = Math.round(visibleWidth * scaleX);
+                    canvas.height = Math.round(visibleHeight * scaleY);
+                    const ctx = canvas.getContext("2d");
+                    if (!ctx) {
+                        failCapture("元素截图失败：无法创建图片画布。");
+                        return;
+                    }
+                    ctx.drawImage(
+                        img,
+                        Math.round(visibleLeft * scaleX),
+                        Math.round(visibleTop * scaleY),
+                        canvas.width,
+                        canvas.height,
+                        0,
+                        0,
+                        canvas.width,
+                        canvas.height
+                    );
+                    const dataUrl = canvas.toDataURL("image/png");
+                    restoreCaptureUi();
+                    self.exit();
+                    copyImageToClipboard(dataUrl)
+                        .then(() => showCapturePreview(dataUrl, "元素可见区域截图成功，已复制到剪贴板。"))
+                        .catch(() => showCapturePreview(dataUrl, "元素可见区域截图成功，但复制到剪贴板失败。"));
+                };
+                img.onerror = () => failCapture("元素截图失败：无法读取浏览器截图。");
+                img.src = response.dataUrl;
+            });
+        }, 200);
+    };
 
     self.onExit = function() {
         overlay.remove();
@@ -718,6 +820,7 @@ div.hint-scrollable {
 
         const be = e.getBoundingClientRect();
         const z = getZIndex(e);
+        const color = behaviours.regionalHints ? getLightRegionalHintColor(i, 76) : getColor(i);
 
         const width = be.width - 4;
         const height = be.height - 4;
@@ -728,9 +831,17 @@ div.hint-scrollable {
         frame.style.width = width + "px";
         frame.style.height = height + "px";
         frame.style.zIndex = z + 9999;
-        frame.style.background = getColor(i) + alpha;
-        frame.style.border = `2px solid ${getColor(i)}`;
+        frame.style.background = behaviours.regionalHints ? getLightRegionalHintColor(i, 88, 0.10) : getColor(i) + alpha;
+        frame.style.border = `2px solid ${color}`;
         return frame;
+    }
+
+    function getLightRegionalHintColor(i, lightness, alpha) {
+        const hue = (i * 47) % 360;
+        if (alpha === undefined) {
+            return `hsl(${hue}, 86%, ${lightness}%)`;
+        }
+        return `hsla(${hue}, 86%, ${lightness}%, ${alpha})`;
     }
 
     function placeHints(elements) {
@@ -774,7 +885,9 @@ div.hint-scrollable {
             link.style.left = left + "px";
             link.style.zIndex = z + 9999;
             if (behaviours.regionalHints) {
-                link.style.background = getColor(i);
+                link.style.background = getLightRegionalHintColor(i, 84);
+                link.style.color = "#111";
+                link.style.border = "solid 1px #555";
             }
             link.zIndex = link.style.zIndex;
             link.label = hintLabels[i];
