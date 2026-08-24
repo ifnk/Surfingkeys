@@ -458,18 +458,14 @@ export default function(api, clipboard, insert, normal, hints, visual, front, br
         hints.create(normal.refreshScrollableElements(), hints.dispatchMouseClick);
     });
 
-    vmapkey("q", '#9Translate word under cursor', function() {
-        var w = getWordUnderCursor();
-        browser.readText(w);
-        var b = visual.getCursorPixelPos();
-        front.performInlineQuery(w, {
-            top: b.top,
-            left: b.left,
-            height: b.height,
-            width: b.width
-        }, function(pos, queryResult) {
-            dispatchSKEvent("front", ['showBubble', pos, queryResult, true]);
-        });
+    vmapkey("q", '#9Translate word under cursor with Chrome', () => {
+        const word = getWordUnderCursor();
+        if (!word) {
+            showBanner("当前光标下没有可翻译的文字。", 2000);
+            return;
+        }
+        const rect = visual.getCursorPixelPos();
+        showTranslationOverlay(word, rect);
     });
 
     function getSentence(textNode, offset) {
@@ -487,18 +483,16 @@ export default function(api, clipboard, insert, normal, hints, visual, front, br
         return sentence.replace(/\n/g, '');
     }
 
-    mapkey("cq", '#7Query word with Hints', function() {
-        hints.create(runtime.conf.textAnchorPat, function (element) {
-            var word = element[2].trim().replace(/[^A-z].*$/, "");
-            var b = getTextNodePos(element[0], element[1], element[2].length);
-            front.performInlineQuery(word, {
-                top: b.top,
-                left: b.left,
-                height: b.height,
-                width: b.width
-            }, function (pos, queryResult) {
-                dispatchSKEvent("front", ['showBubble', pos, queryResult, false]);
-            });
+    mapkey("cq", '#7Translate word with Hints using Chrome', () => {
+        hints.create(runtime.conf.textAnchorPat, (element) => {
+            const word = element[2].trim()
+                .replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+            if (!word) {
+                showBanner("没有识别到可翻译的文字。", 2000);
+                return;
+            }
+            const rect = getTextNodePos(element[0], element[1], element[2].length);
+            showTranslationOverlay(word, rect);
         });
     });
 
