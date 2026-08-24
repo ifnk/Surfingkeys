@@ -161,6 +161,7 @@ export default function(api, clipboard, insert, normal, hints, visual, front, br
 
     let languageDetectorPromise = null;
     const translators = new Map();
+    const phonetics = new Map();
 
     const formatDownloadProgress = (stage, event) => {
         const percent = Math.round((event.loaded || 0) * 100);
@@ -228,7 +229,35 @@ export default function(api, clipboard, insert, normal, hints, visual, front, br
         const targetLanguage = sourceLanguage.toLowerCase().startsWith("zh") ? "en" : "zh";
         updateStatus(`正在翻译（${sourceLanguage} → ${targetLanguage}）...`);
         const translator = await getTranslator(sourceLanguage, targetLanguage, updateStatus);
-        return translator.translate(text);
+        return {
+            sourceLanguage,
+            targetLanguage,
+            translated: await translator.translate(text)
+        };
+    };
+
+    const lookupEnglishPhonetic = async (word) => {
+        if (!/^[A-Za-z][A-Za-z'-]*$/.test(word)) {
+            return "";
+        }
+        const cacheKey = word.toLowerCase();
+        if (!phonetics.has(cacheKey)) {
+            const request = fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(cacheKey)}`)
+                .then((response) => response.ok ? response.json() : [])
+                .then((entries) => {
+                    const entry = entries[0] || {};
+                    const phonetic = entry.phonetic
+                        || (entry.phonetics || []).find((item) => item.text)?.text
+                        || "";
+                    if (!phonetic) {
+                        return "";
+                    }
+                    return phonetic.startsWith("/") ? phonetic : `/${phonetic}/`;
+                })
+                .catch(() => "");
+            phonetics.set(cacheKey, request);
+        }
+        return phonetics.get(cacheKey);
     };
 
     const showTranslationOverlay = async (text, rect, options = {}) => {
@@ -285,15 +314,22 @@ export default function(api, clipboard, insert, normal, hints, visual, front, br
         document.addEventListener('mousedown', onMouse, true);
 
         try {
-            const translated = await translateWithChrome(text, (status) => {
+            const translation = await translateWithChrome(text, (status) => {
                 updateBox(status);
             });
-            const result = translated.trim();
-            updateBox(result || "未返回翻译结果。");
-            if (result && options.speak) {
-                browser.readText(result, {
+            const result = translation.translated.trim();
+            const original = options.wordLookup ? text.trim() : "";
+            updateBox(original ? `${original}\n${result || "未返回翻译结果。"}` : (result || "未返回翻译结果。"));
+            if (original && translation.sourceLanguage.toLowerCase().startsWith("en")) {
+                const phonetic = await lookupEnglishPhonetic(original);
+                if (phonetic) {
+                    updateBox(`${original} ${phonetic}\n${result || "未返回翻译结果。"}`);
+                }
+            }
+            if (original && options.speakOriginal) {
+                browser.readText(original, {
                     enqueue: true,
-                    voiceName: runtime.conf.defaultVoice,
+                    lang: translation.sourceLanguage,
                     volume: 1
                 });
             }
@@ -491,7 +527,7 @@ export default function(api, clipboard, insert, normal, hints, visual, front, br
             return;
         }
         const rect = visual.getCursorPixelPos();
-        showTranslationOverlay(word, rect, {speak: true});
+        showTranslationOverlay(word, rect, {wordLookup: true, speakOriginal: true});
     });
 
     function getSentence(textNode, offset) {
@@ -518,7 +554,7 @@ export default function(api, clipboard, insert, normal, hints, visual, front, br
                 return;
             }
             const rect = getTextNodePos(element[0], element[1], element[2].length);
-            showTranslationOverlay(word, rect, {speak: true});
+            showTranslationOverlay(word, rect, {wordLookup: true, speakOriginal: true});
         });
     });
 
