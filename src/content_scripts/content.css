@@ -69,7 +69,9 @@ div.surfingkeys_cursor:empty {
 .surfingkeys_translation {
     position: absolute;
     z-index: 2147483647;
-    min-width: 400px;
+    box-sizing: border-box;
+    min-width: min(400px, calc(100vw - 24px));
+    max-width: calc(100vw - 24px);
     padding: 8px 12px;
     font-size: 14px;
     line-height: 1.5;

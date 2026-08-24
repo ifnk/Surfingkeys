@@ -231,22 +231,40 @@ export default function(api, clipboard, insert, normal, hints, visual, front, br
         return translator.translate(text);
     };
 
-    const showTranslationOverlay = async (text, rect) => {
+    const showTranslationOverlay = async (text, rect, options = {}) => {
         const box = createElementWithContent('div', "正在准备翻译...", {class: 'surfingkeys_translation'});
         const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
         const scrollEl = document.scrollingElement || document.documentElement;
-        const scrollX = scrollEl.scrollLeft || 0;
-        const scrollY = scrollEl.scrollTop || 0;
-        if (rect) {
-            box.style.width = rect.width + "px";
-            box.style.left = clamp(scrollX + rect.left, 0, Math.max(0, (scrollEl.scrollWidth || window.innerWidth) - rect.width)) + "px";
-            box.style.top = (scrollY + rect.bottom + 8) + "px";
-        } else {
-            box.style.left = (scrollX + window.innerWidth / 2) + "px";
-            box.style.top = (scrollY + window.innerHeight * 0.4) + "px";
-            box.style.transform = "translate(-50%, -50%)";
-        }
         (document.body || document.documentElement).appendChild(box);
+
+        const positionBox = () => {
+            const scrollX = scrollEl.scrollLeft || 0;
+            const scrollY = scrollEl.scrollTop || 0;
+            if (!rect) {
+                box.style.left = (scrollX + window.innerWidth / 2) + "px";
+                box.style.top = (scrollY + window.innerHeight * 0.4) + "px";
+                box.style.transform = "translate(-50%, -50%)";
+                return;
+            }
+
+            box.style.transform = "";
+            const anchorBottom = rect.bottom ?? rect.top + (rect.height || 0);
+            const availableWidth = Math.max(120, window.innerWidth - 24);
+            box.style.width = Math.min(Math.max(rect.width || 0, 400), availableWidth) + "px";
+            const boxWidth = box.offsetWidth;
+            const boxHeight = box.offsetHeight;
+            const viewportLeft = clamp(rect.left, 8, Math.max(8, window.innerWidth - boxWidth - 8));
+            const below = anchorBottom + 8;
+            const above = rect.top - boxHeight - 8;
+            const viewportTop = below + boxHeight <= window.innerHeight - 8 ? below : above;
+            box.style.left = (scrollX + viewportLeft) + "px";
+            box.style.top = (scrollY + clamp(viewportTop, 8, Math.max(8, window.innerHeight - boxHeight - 8))) + "px";
+        };
+        const updateBox = (content) => {
+            box.textContent = content;
+            positionBox();
+        };
+        positionBox();
 
         const close = () => {
             box.remove();
@@ -268,11 +286,15 @@ export default function(api, clipboard, insert, normal, hints, visual, front, br
 
         try {
             const translated = await translateWithChrome(text, (status) => {
-                box.textContent = status;
+                updateBox(status);
             });
-            box.textContent = translated.trim() || "未返回翻译结果。";
+            const result = translated.trim();
+            updateBox(result || "未返回翻译结果。");
+            if (result && options.speak) {
+                browser.readText(result);
+            }
         } catch (error) {
-            box.textContent = `翻译失败：${error.message || error}`;
+            updateBox(`翻译失败：${error.message || error}`);
         }
     };
 
@@ -465,7 +487,7 @@ export default function(api, clipboard, insert, normal, hints, visual, front, br
             return;
         }
         const rect = visual.getCursorPixelPos();
-        showTranslationOverlay(word, rect);
+        showTranslationOverlay(word, rect, {speak: true});
     });
 
     function getSentence(textNode, offset) {
@@ -492,7 +514,7 @@ export default function(api, clipboard, insert, normal, hints, visual, front, br
                 return;
             }
             const rect = getTextNodePos(element[0], element[1], element[2].length);
-            showTranslationOverlay(word, rect);
+            showTranslationOverlay(word, rect, {speak: true});
         });
     });
 
