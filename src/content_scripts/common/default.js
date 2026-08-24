@@ -291,7 +291,11 @@ export default function(api, clipboard, insert, normal, hints, visual, front, br
             const result = translated.trim();
             updateBox(result || "未返回翻译结果。");
             if (result && options.speak) {
-                browser.readText(result);
+                browser.readText(result, {
+                    enqueue: true,
+                    voiceName: runtime.conf.defaultVoice,
+                    volume: 1
+                });
             }
         } catch (error) {
             updateBox(`翻译失败：${error.message || error}`);
