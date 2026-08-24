@@ -545,7 +545,7 @@ export default function(api, clipboard, insert, normal, hints, visual, front, br
         return sentence.replace(/\n/g, '');
     }
 
-    mapkey("cq", '#7Translate word with Hints using Chrome', () => {
+    const translateWordWithHints = () => {
         hints.create(runtime.conf.textAnchorPat, (element) => {
             const word = element[2].trim()
                 .replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
@@ -556,7 +556,9 @@ export default function(api, clipboard, insert, normal, hints, visual, front, br
             const rect = getTextNodePos(element[0], element[1], element[2].length);
             showTranslationOverlay(word, rect, {wordLookup: true, speakOriginal: true});
         });
-    });
+    };
+    mapkey("q", '#7Translate word with Hints using Chrome', translateWordWithHints);
+    mapkey("cq", '#7Translate word with Hints using Chrome', translateWordWithHints);
 
 
     map('g0', ':feedkeys 99E', 0, "#3Go to the first tab");
@@ -668,7 +670,7 @@ export default function(api, clipboard, insert, normal, hints, visual, front, br
     map('<Ctrl-i>', 'I');
     cmap('<ArrowDown>', '<Ctrl-n>');
     cmap('<ArrowUp>', '<Ctrl-p>');
-    mapkey('q', '#1Click on an Image or a button', function() {
+    mapkey(';q', '#1Click on an Image or a button', function() {
         hints.create("img, button", hints.dispatchMouseClick);
     });
     mapkey('<Alt-p>', '#3pin/unpin current tab', function() {
