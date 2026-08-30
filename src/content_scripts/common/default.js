@@ -7,7 +7,6 @@ import {
     getCssSelectorsOfEditable,
     getLargeElements,
     getRealEdit,
-    getTextNodePos,
     getTextRect,
     getWordUnderCursor,
     htmlEncode,
@@ -17,6 +16,12 @@ import {
     tabOpenLink,
     toggleQuote,
 } from './utils.js';
+import {
+    extractTableMatrix,
+    formatCsvFilename,
+    getTableCopyCandidates,
+    serializeCsv,
+} from './table.js';
 
 export default function(api, clipboard, insert, normal, hints, visual, front, browser) {
     const {
@@ -159,36 +164,14 @@ export default function(api, clipboard, insert, normal, hints, visual, front, br
         };
     };
 
-    let languageDetectorPromise = null;
     const translators = new Map();
     const phonetics = new Map();
+    const wordTranslations = new Map();
+    let activeTranslationOverlay = null;
 
     const formatDownloadProgress = (stage, event) => {
         const percent = Math.round((event.loaded || 0) * 100);
         return `${stage}（首次使用需下载语言包：${percent}%）`;
-    };
-
-    const getLanguageDetector = async (updateStatus) => {
-        if (!('LanguageDetector' in globalThis)) {
-            throw new Error("当前 Chrome 不支持内置语言识别，请升级到 Chrome 138 或更高版本。");
-        }
-        if (!languageDetectorPromise) {
-            const availability = await LanguageDetector.availability();
-            if (availability === "unavailable") {
-                throw new Error("Chrome 内置语言识别当前不可用。");
-            }
-            languageDetectorPromise = LanguageDetector.create({
-                monitor(monitor) {
-                    monitor.addEventListener('downloadprogress', (event) => {
-                        updateStatus(formatDownloadProgress("正在准备语言识别", event));
-                    });
-                }
-            }).catch((error) => {
-                languageDetectorPromise = null;
-                throw error;
-            });
-        }
-        return languageDetectorPromise;
     };
 
     const getTranslator = async (sourceLanguage, targetLanguage, updateStatus) => {
@@ -219,14 +202,8 @@ export default function(api, clipboard, insert, normal, hints, visual, front, br
     };
 
     const translateWithChrome = async (text, updateStatus) => {
-        updateStatus("正在识别语言...");
-        const detector = await getLanguageDetector(updateStatus);
-        const results = await detector.detect(text);
-        const sourceLanguage = results[0] && results[0].detectedLanguage;
-        if (!sourceLanguage || sourceLanguage === "und") {
-            throw new Error("无法识别所选文字的语言。");
-        }
-        const targetLanguage = sourceLanguage.toLowerCase().startsWith("zh") ? "en" : "zh";
+        const sourceLanguage = "en";
+        const targetLanguage = "zh";
         updateStatus(`正在翻译（${sourceLanguage} → ${targetLanguage}）...`);
         const translator = await getTranslator(sourceLanguage, targetLanguage, updateStatus);
         return {
@@ -260,10 +237,99 @@ export default function(api, clipboard, insert, normal, hints, visual, front, br
         return phonetics.get(cacheKey);
     };
 
-    const showTranslationOverlay = async (text, rect, options = {}) => {
+    const getEnglishWordRange = (node, offset) => {
+        if (!node || node.nodeType !== Node.TEXT_NODE) {
+            return null;
+        }
+        const matches = Array.from(node.data.matchAll(/[A-Za-z][A-Za-z'-]*/g));
+        if (matches.length === 0) {
+            return null;
+        }
+        const match = matches.find((item) => item.index <= offset && offset <= item.index + item[0].length)
+            || matches.reduce((nearest, item) => {
+                const distance = Math.min(Math.abs(offset - item.index), Math.abs(offset - item.index - item[0].length));
+                return !nearest || distance < nearest.distance ? {item, distance} : nearest;
+            }, null).item;
+        return {
+            node,
+            start: match.index,
+            end: match.index + match[0].length,
+            word: match[0]
+        };
+    };
+
+    const translateEnglishWordInline = async ({node, start, end, word}) => {
+        if (!node?.isConnected || node.nodeType !== Node.TEXT_NODE || node.data.slice(start, end) !== word) {
+            showBanner("无法定位要翻译的英文单词。", 2000);
+            return;
+        }
+        const existing = end === node.data.length ? node.nextSibling : null;
+        if (existing?.nodeType === Node.ELEMENT_NODE
+            && existing.matches("surfingkeys_mark.surfingkeys_inline_translation")) {
+            return;
+        }
+
+        const cacheKey = word.toLowerCase();
+        if (!wordTranslations.has(cacheKey)) {
+            const request = translateWithChrome(word, () => {})
+                .then((translation) => translation.translated.trim())
+                .catch((error) => {
+                    wordTranslations.delete(cacheKey);
+                    throw error;
+                });
+            wordTranslations.set(cacheKey, request);
+        }
+
+        try {
+            const phoneticPromise = lookupEnglishPhonetic(word);
+            const translated = await wordTranslations.get(cacheKey);
+            if (!node.isConnected || node.data.slice(start, end) !== word) {
+                return;
+            }
+
+            const currentExisting = end === node.data.length ? node.nextSibling : null;
+            if (currentExisting?.nodeType === Node.ELEMENT_NODE
+                && currentExisting.matches("surfingkeys_mark.surfingkeys_inline_translation")) {
+                return;
+            }
+
+            const annotation = createElementWithContent(
+                "surfingkeys_mark",
+                `（${translated || "未返回翻译结果"}）`,
+                {class: "surfingkeys_inline_translation"}
+            );
+            annotation.dataset.original = cacheKey;
+            annotation.setAttribute("aria-hidden", "true");
+            const range = document.createRange();
+            range.setStart(node, end);
+            range.collapse(true);
+            range.insertNode(annotation);
+
+            browser.readText(word, {
+                enqueue: false,
+                lang: "en",
+                volume: 1
+            });
+
+            const phonetic = await phoneticPromise;
+            if (phonetic && annotation.isConnected) {
+                annotation.textContent = ` ${phonetic}（${translated || "未返回翻译结果"}）`;
+            }
+        } catch (error) {
+            showBanner(`翻译失败：${error.message || error}`, 3000);
+        }
+    };
+
+    const showTranslationOverlay = async (text, rect) => {
+        activeTranslationOverlay?.close();
+
         const box = createElementWithContent('div', "正在准备翻译...", {class: 'surfingkeys_translation'});
         const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
         const scrollEl = document.scrollingElement || document.documentElement;
+        const overlay = {
+            close: () => {}
+        };
+        activeTranslationOverlay = overlay;
         (document.body || document.documentElement).appendChild(box);
 
         const positionBox = () => {
@@ -278,8 +344,6 @@ export default function(api, clipboard, insert, normal, hints, visual, front, br
 
             box.style.transform = "";
             const anchorBottom = rect.bottom ?? rect.top + (rect.height || 0);
-            const availableWidth = Math.max(120, window.innerWidth - 24);
-            box.style.width = Math.min(Math.max(rect.width || 0, 400), availableWidth) + "px";
             const boxWidth = box.offsetWidth;
             const boxHeight = box.offsetHeight;
             const viewportLeft = clamp(rect.left, 8, Math.max(8, window.innerWidth - boxWidth - 8));
@@ -290,16 +354,24 @@ export default function(api, clipboard, insert, normal, hints, visual, front, br
             box.style.top = (scrollY + clamp(viewportTop, 8, Math.max(8, window.innerHeight - boxHeight - 8))) + "px";
         };
         const updateBox = (content) => {
+            if (activeTranslationOverlay !== overlay || !box.isConnected) {
+                return false;
+            }
             box.textContent = content;
             positionBox();
+            return true;
         };
         positionBox();
 
         const close = () => {
+            if (activeTranslationOverlay === overlay) {
+                activeTranslationOverlay = null;
+            }
             box.remove();
             document.removeEventListener('keydown', onKey, true);
             document.removeEventListener('mousedown', onMouse, true);
         };
+        overlay.close = close;
         const onKey = (event) => {
             if (event.key === 'Escape') {
                 close();
@@ -318,27 +390,13 @@ export default function(api, clipboard, insert, normal, hints, visual, front, br
                 updateBox(status);
             });
             const result = translation.translated.trim();
-            const original = options.wordLookup ? text.trim() : "";
-            updateBox(original ? `${original}\n${result || "未返回翻译结果。"}` : (result || "未返回翻译结果。"));
-            if (original && translation.sourceLanguage.toLowerCase().startsWith("en")) {
-                const phonetic = await lookupEnglishPhonetic(original);
-                if (phonetic) {
-                    updateBox(`${original} ${phonetic}\n${result || "未返回翻译结果。"}`);
-                }
-            }
-            if (original && options.speakOriginal) {
-                browser.readText(original, {
-                    enqueue: true,
-                    lang: translation.sourceLanguage,
-                    volume: 1
-                });
-            }
+            updateBox(result || "未返回翻译结果。");
         } catch (error) {
             updateBox(`翻译失败：${error.message || error}`);
         }
     };
 
-    mapkey('<Space>t', '#8Translate selected text with Chrome', function() {
+    mapkey('<Space>t', '#8Translate English text to Chinese with Chrome', function() {
         hints.create(runtime.conf.textAnchorPat, function (element) {
             const text = element[1] === 0 ? element[0].data.trim() : element[2].trim();
             if (text) {
@@ -363,6 +421,18 @@ export default function(api, clipboard, insert, normal, hints, visual, front, br
     });
     vmapkey('<Ctrl-d>', '#9Forward 20 lines', function() {
         visual.feedkeys('20j');
+    });
+    vmapkey('gh', '#9Move to beginning of line', function() {
+        visual.feedkeys('0');
+    });
+    vmapkey('gl', '#9Move to end of line', function() {
+        visual.feedkeys('$');
+    });
+    vmapkey('<Alt-n>', '#9Expand selection to parent element', function() {
+        visual.expandSelection();
+    });
+    vmapkey('<Alt-p>', '#9Shrink to previous selection', function() {
+        visual.shrinkSelection();
     });
 
     mapkey('m', '#10Add current URL to vim-like marks', normal.addVIMark);
@@ -470,8 +540,8 @@ export default function(api, clipboard, insert, normal, hints, visual, front, br
         const rect = selection.getRangeAt(0).getBoundingClientRect();
         showTranslationOverlay(text, rect.width > 0 ? rect : null);
     };
-    mapkey(';t', '#8Translate selected text with Chrome', translateSelection);
-    vmapkey('t', '#8Translate selected text with Chrome', translateSelection);
+    mapkey(';t', '#8Translate English text to Chinese with Chrome', translateSelection);
+    vmapkey('t', '#8Translate English text to Chinese with Chrome', translateSelection);
 
     mapkey('O', '#1Open detected links from text', function() {
         hints.create(runtime.conf.clickablePat, function(element) {
@@ -520,14 +590,14 @@ export default function(api, clipboard, insert, normal, hints, visual, front, br
         hints.create(normal.refreshScrollableElements(), hints.dispatchMouseClick);
     });
 
-    vmapkey("q", '#9Translate word under cursor with Chrome', () => {
-        const word = getWordUnderCursor();
-        if (!word) {
+    vmapkey("q", '#9Translate English word to Chinese with Chrome', () => {
+        const selection = window.getSelection();
+        const wordRange = getEnglishWordRange(selection?.focusNode, selection?.focusOffset || 0);
+        if (!wordRange) {
             showBanner("当前光标下没有可翻译的文字。", 2000);
             return;
         }
-        const rect = visual.getCursorPixelPos();
-        showTranslationOverlay(word, rect, {wordLookup: true, speakOriginal: true});
+        translateEnglishWordInline(wordRange);
     });
 
     function getSentence(textNode, offset) {
@@ -547,18 +617,22 @@ export default function(api, clipboard, insert, normal, hints, visual, front, br
 
     const translateWordWithHints = () => {
         hints.create(runtime.conf.textAnchorPat, (element) => {
-            const word = element[2].trim()
-                .replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
-            if (!word) {
+            const match = element[2].match(/[A-Za-z][A-Za-z'-]*/);
+            if (!match) {
                 showBanner("没有识别到可翻译的文字。", 2000);
                 return;
             }
-            const rect = getTextNodePos(element[0], element[1], element[2].length);
-            showTranslationOverlay(word, rect, {wordLookup: true, speakOriginal: true});
+            const start = element[1] + match.index;
+            translateEnglishWordInline({
+                node: element[0],
+                start,
+                end: start + match[0].length,
+                word: match[0]
+            });
         });
     };
-    mapkey("q", '#7Translate word with Hints using Chrome', translateWordWithHints);
-    mapkey("cq", '#7Translate word with Hints using Chrome', translateWordWithHints);
+    mapkey("q", '#7Translate English word to Chinese with Chrome', translateWordWithHints);
+    mapkey("cq", '#7Translate English word to Chinese with Chrome', translateWordWithHints);
 
 
     map('g0', ':feedkeys 99E', 0, "#3Go to the first tab");
@@ -660,6 +734,86 @@ export default function(api, clipboard, insert, normal, hints, visual, front, br
             }
             clipboard.write(rows.join("\n"));
         }, {multipleHits: true});
+    });
+    mapkey(';yc', '#7Copy a table as CSV', () => {
+        const candidates = getTableCopyCandidates();
+        console.debug("[Surfingkeys][TableCopy]", {
+            candidates: candidates.length,
+            url: window.location.href
+        });
+        if (candidates.length === 0) {
+            showBanner("No supported table found on this page.", 3000);
+            return;
+        }
+        hints.create(candidates, (candidate) => {
+            const result = extractTableMatrix(candidate);
+            const rowCount = result.matrix.length;
+            const columnCount = result.matrix.reduce((count, row) => Math.max(count, row.length), 0);
+            console.debug("[Surfingkeys][TableCopy]", {
+                adapter: result.adapter,
+                rows: rowCount,
+                columns: columnCount,
+                renderedRowsOnly: true
+            });
+            if (rowCount === 0 || columnCount === 0) {
+                showBanner("The selected table has no rendered cells.", 3000);
+                return;
+            }
+            clipboard.write(
+                serializeCsv(result.matrix),
+                `table as CSV (${rowCount} rows × ${columnCount} columns)`
+            );
+        });
+    });
+    mapkey(';yd', '#7Download a table as CSV', () => {
+        const candidates = getTableCopyCandidates();
+        console.debug("[Surfingkeys][TableDownload]", {
+            candidates: candidates.length,
+            url: window.location.href
+        });
+        if (candidates.length === 0) {
+            showBanner("No supported table found on this page.", 3000);
+            return;
+        }
+        hints.create(candidates, (candidate) => {
+            const result = extractTableMatrix(candidate);
+            const rowCount = result.matrix.length;
+            const columnCount = result.matrix.reduce((count, row) => Math.max(count, row.length), 0);
+            if (rowCount === 0 || columnCount === 0) {
+                showBanner("The selected table has no rendered cells.", 3000);
+                return;
+            }
+            const filename = formatCsvFilename();
+            const csvUrl = URL.createObjectURL(new Blob(
+                ["\uFEFF", serializeCsv(result.matrix)],
+                {type: "text/csv;charset=utf-8"}
+            ));
+            console.debug("[Surfingkeys][TableDownload]", {
+                adapter: result.adapter,
+                rows: rowCount,
+                columns: columnCount,
+                filename,
+                renderedRowsOnly: true
+            });
+            RUNTIME('download', {
+                url: csvUrl,
+                filename,
+                saveAs: false,
+                conflictAction: "uniquify"
+            }, (response) => {
+                URL.revokeObjectURL(csvUrl);
+                if (response?.error) {
+                    console.warn("[Surfingkeys][TableDownload]", response);
+                    showBanner(`CSV download failed: ${response.error}`, 4000);
+                    return;
+                }
+                console.debug("[Surfingkeys][TableDownload]", {
+                    filename,
+                    downloadId: response?.downloadId
+                });
+                showBanner(`Downloaded CSV: ${filename}`, 3000);
+            });
+        });
     });
     mapkey('yq', '#7Copy pre text', function() {
         hints.create("pre", function(element) {

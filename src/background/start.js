@@ -1561,10 +1561,21 @@ function start(browser) {
         });
     };
     self.download = function(message, sender, sendResponse) {
-        chrome.downloads.download({
+        const options = {
             url: message.url,
             filename: message.filename,
             saveAs: message.saveAs
+        };
+        if (message.conflictAction) {
+            options.conflictAction = message.conflictAction;
+        }
+        if (!message.needResponse) {
+            chrome.downloads.download(options);
+            return;
+        }
+        chrome.downloads.download(options, function(downloadId) {
+            const error = chrome.runtime.lastError?.message;
+            _response(message, sendResponse, error ? {error} : {downloadId});
         });
     };
     self.tabURLAccessed = function(message, sender, sendResponse) {

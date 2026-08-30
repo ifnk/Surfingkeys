@@ -77,9 +77,9 @@ function createClipboard() {
      * @example
      * Clipboard.write(window.location.href);
      */
-    self.write = function(text) {
+    self.write = function(text, description) {
         const cb = () => {
-            showBanner("Copied: " + text);
+            showBanner("Copied: " + (description || text));
         };
         // navigator.clipboard.writeText does not work on http site, and in chrome's background script.
         if (getBrowserName() === "Chrome") {

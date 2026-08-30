@@ -968,6 +968,9 @@ div.hint-scrollable {
         self.statusLine = (attrs && attrs.statusLine) || "Hints to select text";
 
         var elements = getVisibleElements(function(e, v) {
+            if (e.localName === "surfingkeys_mark") {
+                return;
+            }
             var aa = e.childNodes;
             for (var i = 0, len = aa.length; i < len; i++) {
                 if (aa[i].nodeType == Node.TEXT_NODE && aa[i].data.length > 0) {

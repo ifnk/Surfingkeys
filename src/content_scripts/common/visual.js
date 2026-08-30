@@ -120,6 +120,7 @@ function createVisual(clipboard, hints) {
     self.mappings = new Trie();
     self.map_node = self.mappings;
     self.repeats = "";
+    const selectionHistory = [];
     self.mappings.add("l", {
         annotation: "forward character",
         feature_group: 9,
@@ -376,27 +377,64 @@ function createVisual(clipboard, hints) {
         }
     });
 
+    const expandSelectionToParent = () => {
+        if (!selection.focusNode || selection.rangeCount === 0) {
+            return false;
+        }
+        const snapshot = {
+            anchorNode: selection.anchorNode,
+            anchorOffset: selection.anchorOffset,
+            focusNode: selection.focusNode,
+            focusOffset: selection.focusOffset
+        };
+        let parent = selection.focusNode;
+        while (parent && parent !== document.body) {
+            parent = parent.parentElement;
+            const textNodes = parent ? getTextNodes(parent, /./) : [];
+            if (textNodes.length === 0) {
+                continue;
+            }
+            const firstNode = textNodes[0];
+            const lastNode = textNodes[textNodes.length - 1];
+            const range = selection.getRangeAt(0);
+            if (range.comparePoint(firstNode, 0) === -1
+                || range.comparePoint(lastNode, lastNode.length) === 1) {
+                selectionHistory.push(snapshot);
+                self.hideCursor();
+                state = 2;
+                _onStateChange();
+                selection.setBaseAndExtent(firstNode, 0, lastNode, lastNode.length);
+                self.showCursor();
+                return true;
+            }
+        }
+        return false;
+    };
+
+    self.expandSelection = expandSelectionToParent;
+    self.shrinkSelection = () => {
+        const snapshot = selectionHistory.pop();
+        if (!snapshot || !snapshot.anchorNode?.isConnected || !snapshot.focusNode?.isConnected) {
+            return false;
+        }
+        self.hideCursor();
+        selection.setBaseAndExtent(
+            snapshot.anchorNode,
+            snapshot.anchorOffset,
+            snapshot.focusNode,
+            snapshot.focusOffset
+        );
+        state = snapshot.anchorNode === snapshot.focusNode
+            && snapshot.anchorOffset === snapshot.focusOffset ? 1 : 2;
+        _onStateChange();
+        self.showCursor();
+        return true;
+    };
+
     self.mappings.add("p", {
         annotation: "Expand selection to parent element",
         feature_group: 9,
-        code: function() {
-            var p = selection.focusNode;
-            while (p !== document.body) {
-                p = p.parentElement;
-                var textNodes = getTextNodes(p, /./);
-                var lastNode = textNodes[textNodes.length-1];
-                var range = selection.getRangeAt(0);
-                if (range.comparePoint(textNodes[0], 0) === -1
-                    || range.comparePoint(lastNode, lastNode.length) === 1) {
-                    self.hideCursor();
-                    state = 2;
-                    _onStateChange();
-                    selection.setBaseAndExtent(textNodes[0], 0, lastNode, lastNode.length);
-                    self.showCursor();
-                    break;
-                }
-            }
-        }
+        code: expandSelectionToParent
     });
 
     self.mappings.add("V", {
@@ -580,6 +618,7 @@ function createVisual(clipboard, hints) {
     }
 
     self.visualClear = function() {
+        selectionHistory.length = 0;
         clearSelectionMark();
         self.hideCursor();
         matches = [];

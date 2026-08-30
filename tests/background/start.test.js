@@ -1474,6 +1474,26 @@ describe('start', () => {
                 {url: 'https://f/x.zip', filename: 'x.zip', saveAs: true});
         });
 
+        it('responds after a download starts', () => {
+            const {chrome, dispatch} = bootstrap();
+            chrome.downloads.download = jest.fn((options, callback) => callback(42));
+            const {sendResponse} = dispatch({
+                action: 'download',
+                needResponse: true,
+                url: 'blob:https://example.test/csv',
+                filename: 'table.csv',
+                saveAs: false,
+                conflictAction: 'uniquify'
+            }, senderFor(12));
+            expect(chrome.downloads.download).toHaveBeenCalledWith({
+                url: 'blob:https://example.test/csv',
+                filename: 'table.csv',
+                saveAs: false,
+                conflictAction: 'uniquify'
+            }, expect.any(Function));
+            expect(sendResponse).toHaveBeenCalledWith({downloadId: 42});
+        });
+
         it('lists downloads', () => {
             const {chrome, dispatch} = bootstrap();
             chrome.downloads.search = jest.fn((q, cb) => cb([{id: 1}]));
