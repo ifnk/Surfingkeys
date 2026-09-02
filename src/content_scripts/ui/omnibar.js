@@ -24,6 +24,7 @@ import {
 } from '../common/utils.js';
 import { RUNTIME, runtime } from '../common/runtime.js';
 import LLMChat from './llmchat';
+import { getCyclicResultPage } from './omnibarPagination.js';
 
 const separator = '➤';
 const separatorHtml = `<span class='separator'>${separator}</span>`;
@@ -136,35 +137,33 @@ function createOmnibar(front, clipboard) {
         }
     });
 
-    self.mappings.add(KeyboardUtils.encodeKeystroke("<Ctrl-.>"), {
+    const showResultPage = (step) => {
+        if (_items) {
+            _start = getCyclicResultPage(
+                _start,
+                _items.length,
+                runtime.conf.omnibarMaxResults,
+                step
+            );
+            _listResultPage();
+        }
+    };
+
+    const nextResultPage = {
         annotation: "Show results of next page",
         feature_group: 8,
-        code: function () {
-            if (_items) {
-                if (_start * runtime.conf.omnibarMaxResults < _items.length) {
-                    _start ++;
-                } else {
-                    _start = 1;
-                }
-                _listResultPage();
-            }
-        }
-    });
+        code: () => showResultPage(1)
+    };
+    self.mappings.add(KeyboardUtils.encodeKeystroke("<Ctrl-.>"), nextResultPage);
+    self.mappings.add(KeyboardUtils.encodeKeystroke("<Ctrl-f>"), nextResultPage);
 
-    self.mappings.add(KeyboardUtils.encodeKeystroke("<Ctrl-,>"), {
+    const previousResultPage = {
         annotation: "Show results of previous page",
         feature_group: 8,
-        code: function () {
-            if (_items) {
-                if (_start > 1) {
-                    _start --;
-                } else {
-                    _start = Math.ceil(_items.length / runtime.conf.omnibarMaxResults);
-                }
-                _listResultPage();
-            }
-        }
-    });
+        code: () => showResultPage(-1)
+    };
+    self.mappings.add(KeyboardUtils.encodeKeystroke("<Ctrl-,>"), previousResultPage);
+    self.mappings.add(KeyboardUtils.encodeKeystroke("<Ctrl-b>"), previousResultPage);
 
     self.mappings.add(KeyboardUtils.encodeKeystroke("<Ctrl-c>"), {
         annotation: "Copy selected item url or all listed item urls",

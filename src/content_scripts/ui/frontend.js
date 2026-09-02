@@ -26,6 +26,7 @@ import createAPI from '../common/api.js';
 import createDefaultMappings from '../common/default.js';
 import createOmnibar from './omnibar.js';
 import createCommands from './command.js';
+import { addLineBoundaryMappings } from './vim.js';
 
 const Front = (function() {
     const clipboard = createClipboard();
@@ -1209,6 +1210,7 @@ function createAceEditor(normal, front) {
         vim.defineEx("wq", "wq", wq);
         vim.defineEx("x", "x", wq);
         vim.map('<CR>', ':wq<CR>', 'normal');
+        addLineBoundaryMappings(vim);
         vim.defineEx("bnext", "bn", function(cm, input) {
             front.contentCommand({
                 action: 'nextEdit',
