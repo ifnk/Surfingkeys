@@ -9,6 +9,7 @@ import {
     getSubSettings,
     start
 } from './start.js';
+import startMarkdownViewer from './markdown-viewer.js';
 
 function loadRawSettings(keys, cb, defaultSet) {
     var rawSet = defaultSet || {};
@@ -190,3 +191,4 @@ start({
     _getContainerName,
     _getContainers
 });
+startMarkdownViewer();

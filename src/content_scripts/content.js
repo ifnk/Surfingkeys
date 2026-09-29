@@ -237,6 +237,20 @@ function start(browser) {
             }
         }).then((modes) => {
             _initContent(modes);
+            const diagramMode = new Mode('MarkdownDiagram');
+            diagramMode.addEventListener('keydown', (event) => {
+                const key = event.key;
+                if (!['+', '=', '-', '_', 'Add', 'Subtract', 'h', 'j', 'k', 'l', 'Escape'].includes(key)
+                    || event.ctrlKey || event.altKey || event.metaKey) {
+                    return;
+                }
+                event.sk_stopPropagation = true;
+                document.dispatchEvent(new CustomEvent('surfingkeys:markdownViewerKey', {detail: {key}}));
+            });
+            document.addEventListener('surfingkeys:markdownViewerMode', (event) => {
+                if (event.detail.open) diagramMode.enter(100);
+                else diagramMode.exit();
+            });
             runtime.on('titleChanged', function() {
                 Mode.checkEventListener(() => {
                     modes.front.detach();

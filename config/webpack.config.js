@@ -54,7 +54,12 @@ function modifyManifest(browser, mode, buffer) {
                     "pages/frontend.html",
                     "pages/pdf_viewer.html",
                     "pages/pdf_viewer.css",
-                    "pages/pdf_viewer.mjs",
+                "pages/pdf_viewer.mjs",
+                "themes/*",
+                "vendor/*",
+                "vendor/mathjax/fonts/*",
+                "content/anchor.svg",
+                "icons/default/*",
                     "pages/shadow.css"
                 ],
                 "matches": [

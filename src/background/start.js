@@ -409,7 +409,7 @@ function start(browser) {
                 }
                 return _message.needResponse;
             }
-        } else {
+        } else if (!_message.message) {
             console.log("[unexpected runtime message] " + JSON.stringify(_message));
         }
     }
