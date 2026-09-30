@@ -704,6 +704,8 @@ function createVisual(clipboard, hints) {
     };
 
     self.next = function(backward) {
+        const markdownViewer = document.documentElement.dataset.surfingkeysMarkdownViewer === 'ready';
+        if (markdownViewer) document.dispatchEvent(new CustomEvent('surfingkeys:markdownJumpStart'));
         if (matches.length) {
             // need enter visual mode again when modeAfterYank is set to Normal / Caret.
             if (state === 0) {
@@ -716,6 +718,7 @@ function createVisual(clipboard, hints) {
             highlight(new RegExp(runtime.conf.lastQuery, runtime.getCaseSensitive(runtime.conf.lastQuery) ? "" : "i"));
             self.visualEnter(runtime.conf.lastQuery);
         }
+        if (markdownViewer) document.dispatchEvent(new CustomEvent('surfingkeys:markdownJumpEnd'));
     };
 
     self.feedkeys = function(keys) {
@@ -787,6 +790,9 @@ function createVisual(clipboard, hints) {
         if (matches.length) {
             self.enter();
             select(matches[currentOccurrence]);
+            if (document.documentElement.dataset.surfingkeysMarkdownViewer === 'ready') {
+                document.dispatchEvent(new CustomEvent('surfingkeys:markdownJumpEnd'));
+            }
         } else {
             dispatchSKEvent("front", ['showStatus', [undefined, undefined, "Pattern not found: {0}".format(query)], 1000]);
         }

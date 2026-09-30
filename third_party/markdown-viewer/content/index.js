@@ -84,6 +84,59 @@ document.addEventListener('surfingkeys:markdownViewerToggleToc', () => {
   document.body.classList.toggle('_toc-left', state.tocVisible && !state.raw)
 })
 
+// 只记录主动跳转；普通滚动由阅读位置恢复逻辑处理。
+var jumpHistory = (() => {
+  var positions = []
+  var index = -1
+  var pending = null
+  var current = () => document.scrollingElement.scrollTop
+  var push = (from, to) => {
+    if (Math.abs(from - to) < 2) return
+    if (index < 0) {
+      positions = [from, to]
+      index = 1
+    }
+    else {
+      positions = positions.slice(0, index + 1)
+      positions[index] = from
+      positions.push(to)
+      index++
+    }
+    if (positions.length > 100) {
+      positions.shift()
+      index--
+    }
+  }
+  document.addEventListener('surfingkeys:markdownJumpStart', () => { pending = current() })
+  document.addEventListener('surfingkeys:markdownJumpEnd', () => {
+    if (pending === null) return
+    push(pending, current())
+    pending = null
+  })
+  document.addEventListener('surfingkeys:markdownJumpNavigate', (event) => {
+    var next = index + (event.detail.forward ? 1 : -1)
+    if (next < 0 || next >= positions.length) return
+    positions[index] = current()
+    index = next
+    pending = null
+    document.scrollingElement.scrollTop = positions[index]
+  })
+  document.addEventListener('click', (event) => {
+    var link = event.target.closest('a[href^="#"]')
+    if (!link || !link.hash || (!link.closest('#_html') && !link.closest('#_toc'))) return
+    var target = document.getElementById(decodeURIComponent(link.hash.slice(1)))
+    if (!target) return
+    pending = current()
+    setTimeout(() => {
+      if (pending !== null) {
+        push(pending, current())
+        pending = null
+      }
+    }, 0)
+  }, true)
+  return {clear: () => { positions = []; index = -1; pending = null }}
+})()
+
 window.addEventListener('keydown', (event) => {
   if (event.key !== 'F9' || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return
   if (!state.content.toc || !$('#_toc')) return
@@ -130,6 +183,7 @@ var update = (update) => {
 }
 
 var render = (md) => {
+  jumpHistory.clear()
   state.markdown = md
   chrome.runtime.sendMessage({
     message: 'markdown',

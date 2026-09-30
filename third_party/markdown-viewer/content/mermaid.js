@@ -264,8 +264,8 @@ var mmd = (() => {
       look: 'neo',
       layout: 'elk',
       startOnLoad: false,
-      flowchart: {nodeSpacing: 30, rankSpacing: 35, diagramPadding: 8, padding: 10},
-      sequence: {actorMargin: 20, width: 120}
+      flowchart: {nodeSpacing: 5, rankSpacing: 5, diagramPadding: 4, padding: 5},
+      sequence: {actorMargin: 10, width: 120}
     })
     var sources = new Map(Array.from(document.querySelectorAll('pre code.mermaid'))
       .map((diagram) => [diagram, diagram.textContent]))

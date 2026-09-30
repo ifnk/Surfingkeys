@@ -990,6 +990,9 @@ function createNormal(insert) {
         feature_group: 9,
         repeatIgnore: true,
         code: function() {
+            if (document.documentElement.dataset.surfingkeysMarkdownViewer === 'ready') {
+                document.dispatchEvent(new CustomEvent('surfingkeys:markdownJumpStart'));
+            }
             dispatchSKEvent("front", ['openFinder']);
         }
     });

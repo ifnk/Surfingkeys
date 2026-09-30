@@ -255,6 +255,15 @@ function start(browser) {
             });
             const markdownMode = new Mode('MarkdownReader');
             markdownMode.addEventListener('keydown', (event) => {
+                if (event.ctrlKey && !event.altKey && !event.metaKey
+                    && document.documentElement.dataset.markdownViewerDiagramMode !== 'open'
+                    && (event.code === 'KeyO' || event.code === 'KeyI')) {
+                    event.sk_stopPropagation = true;
+                    document.dispatchEvent(new CustomEvent('surfingkeys:markdownJumpNavigate', {
+                        detail: {forward: event.code === 'KeyI'}
+                    }));
+                    return;
+                }
                 if (event.key !== 'F9' || event.altKey || event.ctrlKey || event.metaKey
                     || document.documentElement.dataset.markdownViewerDiagramMode === 'open') {
                     return;
