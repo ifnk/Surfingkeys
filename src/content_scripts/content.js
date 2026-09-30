@@ -239,18 +239,33 @@ function start(browser) {
             _initContent(modes);
             const diagramMode = new Mode('MarkdownDiagram');
             diagramMode.addEventListener('keydown', (event) => {
+                if (Mode.getCurrent() !== diagramMode) return;
                 const key = event.key;
-                if (!['+', '=', '-', '_', 'Add', 'Subtract', 'h', 'j', 'k', 'l', 'Escape'].includes(key)
+                if (!['+', '=', '-', '_', 'Add', 'Subtract', 'h', 'j', 'k', 'l', 'Escape', 'F9'].includes(key)
                     || event.ctrlKey || event.altKey || event.metaKey) {
                     return;
                 }
                 event.sk_stopPropagation = true;
-                document.dispatchEvent(new CustomEvent('surfingkeys:markdownViewerKey', {detail: {key}}));
+                if (key === 'F9') document.dispatchEvent(new CustomEvent('surfingkeys:markdownViewerToggleToc'));
+                else document.dispatchEvent(new CustomEvent('surfingkeys:markdownViewerKey', {detail: {key}}));
             });
             document.addEventListener('surfingkeys:markdownViewerMode', (event) => {
-                if (event.detail.open) diagramMode.enter(100);
-                else diagramMode.exit();
+                if (event.detail.open) diagramMode.enter(2);
+                else diagramMode.exit(true);
             });
+            const markdownMode = new Mode('MarkdownReader');
+            markdownMode.addEventListener('keydown', (event) => {
+                if (event.key !== 'F9' || event.altKey || event.ctrlKey || event.metaKey
+                    || document.documentElement.dataset.markdownViewerDiagramMode === 'open') {
+                    return;
+                }
+                event.sk_stopPropagation = true;
+                document.dispatchEvent(new CustomEvent('surfingkeys:markdownViewerToggleToc'));
+            });
+            document.addEventListener('surfingkeys:markdownViewerReady', () => markdownMode.enter(1));
+            if (document.documentElement.dataset.surfingkeysMarkdownViewer === 'ready') {
+                markdownMode.enter(1);
+            }
             runtime.on('titleChanged', function() {
                 Mode.checkEventListener(() => {
                     modes.front.detach();

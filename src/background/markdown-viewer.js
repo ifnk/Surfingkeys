@@ -71,6 +71,7 @@ const injectMarkdownViewer = async (tabId) => {
         func: () => {
             document.documentElement.dataset.surfingkeysMarkdownViewer = 'ready';
             document.dispatchEvent(new CustomEvent('surfingkeys:ensureFrontEnd'));
+            document.dispatchEvent(new CustomEvent('surfingkeys:markdownViewerReady'));
         },
     });
 };

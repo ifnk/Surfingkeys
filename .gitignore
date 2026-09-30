@@ -8,3 +8,8 @@ jsconfig.json
 src/content_scripts/safari.js
 *~
 .idea
+third_party/markdown-viewer/build/tmp/
+third_party/markdown-viewer/manifest.json
+third_party/markdown-viewer/markdown-viewer.zip
+third_party/markdown-viewer/themes/
+third_party/markdown-viewer/vendor/

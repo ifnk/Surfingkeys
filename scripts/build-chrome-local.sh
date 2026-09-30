@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="$ROOT_DIR/dist/development/chrome"
 TARGET_DIR="${SURFINGKEYS_CHROME_BUILD_DIR:-/mnt/d/temp/surfingkeys-build}"
-MARKDOWN_VIEWER_DIR="${MARKDOWN_VIEWER_SOURCE_DIR:-$ROOT_DIR/../markdown-viewer-custom}"
+MARKDOWN_VIEWER_DIR="$ROOT_DIR/third_party/markdown-viewer"
 
 cd "$ROOT_DIR"
 
