@@ -1,5 +1,17 @@
 const path = require('path');
 const package = require('../package.json');
+const focusPolicy = require('../src/common/focus-policy.json');
+const focusRules = [
+    ...focusPolicy.blockedDomains.map((domain, index) => ({
+        id: index + 1, priority: 1,
+        action: {type: 'redirect', redirect: {extensionPath: `/pages/focus.html?site=${encodeURIComponent(domain)}`}},
+        condition: {requestDomains: [domain], resourceTypes: ['main_frame']}
+    })),
+    ...focusPolicy.allowedDomains.map((domain, index) => ({
+        id: 1000 + index, priority: 2, action: {type: 'allow'},
+        condition: {requestDomains: [domain], resourceTypes: ['main_frame']}
+    }))
+];
 
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 const FileManagerPlugin = require('filemanager-webpack-plugin');
@@ -35,6 +47,10 @@ function modifyManifest(browser, mode, buffer) {
         manifest.permissions.push("userScripts");
         manifest.permissions.push("tabGroups");
         manifest.incognito = "split";
+        manifest.permissions.push("declarativeNetRequest");
+        manifest.declarative_net_request = {
+            rule_resources: [{id: 'focus', enabled: true, path: 'focus-rules.json'}]
+        };
         manifest.options_page = "pages/options.html";
         manifest.background = {
             "service_worker": "background.js"
@@ -52,6 +68,7 @@ function modifyManifest(browser, mode, buffer) {
                     "pages/emoji.tsv",
                     "pages/l10n.json",
                     "pages/frontend.html",
+                    "pages/focus.html",
                     "pages/pdf_viewer.html",
                     "pages/pdf_viewer.css",
                 "pages/pdf_viewer.mjs",
@@ -124,6 +141,7 @@ module.exports = (env, argv) => {
         moduleEntries['pages/neovim_lib'] = './src/nvim/renderer.ts';
         moduleEntries['api'] = './src/user_scripts/index.js';
         const chromeOnlyCopyPatterns = [
+            { from: 'src/common/focus-policy.json', to: 'focus-rules.json', transform: () => JSON.stringify(focusRules, null, 2) },
             { from: 'node_modules/pdfjs-dist/cmaps', to: 'pages/cmaps' },
             { from: 'node_modules/pdfjs-dist/build/pdf.min.mjs', to: 'pages' },
             { from: 'node_modules/pdfjs-dist/build/pdf.worker.min.mjs', to: 'pages' },

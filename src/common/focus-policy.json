@@ -1,0 +1,4 @@
+{
+  "blockedDomains": ["bilibili.com", "bsky.app", "chess.com", "dailymotion.com", "discord.com", "disneyplus.com", "douyin.com", "facebook.com", "fandom.com", "genda.shurufa.app", "imgur.com", "instagram.com", "mhhf.com", "netflix.com", "pinterest.com", "primevideo.com", "roblox.com", "tieba.baidu.com", "tiktok.com", "tumblr.com", "twitch.tv", "typer.owenyang.top", "whatsapp.com", "x.com", "youtube.com", "zhihu.com"],
+  "allowedDomains": ["music.youtube.com", "zhuanlan.zhihu.com"]
+}
