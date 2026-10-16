@@ -81,15 +81,26 @@ function createClipboard() {
         const cb = () => {
             showBanner("Copied: " + (description || text));
         };
-        // navigator.clipboard.writeText does not work on http site, and in chrome's background script.
         if (getBrowserName() === "Chrome") {
+            // HTTPS 和 localhost 直接写入剪贴板，避免弹窗焦点限制打断文本选择。
+            if (typeof navigator.clipboard?.writeText === 'function') {
+                return navigator.clipboard.writeText(text).then(cb, () => {
+                    showBanner("Copy failed: unable to write to clipboard");
+                });
+            }
+            // 普通 HTTP 页面没有 Clipboard API，保留原有复制方式。
+            let copied = false;
             clipboardActionWithSelectionPreserved(function() {
                 holder.value = text;
                 holder.select();
-                document.execCommand('copy');
+                copied = document.activeElement === holder && document.execCommand('copy');
                 holder.value = '';
             });
-            cb();
+            if (copied) {
+                cb();
+            } else {
+                showBanner("Copy failed: unable to select text for clipboard");
+            }
         } else {
             // works for Firefox and Safari now.
             RUNTIME("writeClipboard", { text });
