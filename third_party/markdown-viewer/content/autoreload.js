@@ -7,6 +7,7 @@
       current = md
     }
     else if (current !== md) {
+      scroll.capture()
       state.reload.md = true
       current = md
       render(md)
@@ -24,7 +25,7 @@
     if (location.protocol === 'file:') {
       chrome.runtime.sendMessage({
         message: 'autoreload',
-        location: location.href
+        location: location.href.split('#')[0]
       }, (res) => {
         if (res.err) {
           console.error(res.err)

@@ -1,6 +1,8 @@
 
 var mmd = (() => {
-  var loaded = false
+  var cache = new Map()
+  var sequence = 0
+  var cleanups = new WeakMap()
   var rendering = Promise.resolve()
   var activeViewer = null
 
@@ -233,23 +235,46 @@ var mmd = (() => {
     stage.addEventListener('pointercancel', endDrag)
   }
 
-  var walk = (regex, string, result = [], match = regex.exec(string)) =>
-    !match ? result : walk(regex, string, result.concat(match[1]))
+  var currentTheme = () => {
+    var dark = state._themes[state.theme] === 'dark' ||
+      (state._themes[state.theme] === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+    return dark ? 'redux-dark-color' : 'redux-color'
+  }
+  // 恢复 run() 的空白预处理；复制代码仍使用未处理的原文。
+  var normalizeSource = (source) => {
+    var lines = source.replace(/\r\n?/g, '\n').split('\n')
+    var indents = lines.filter((line) => line.trim()).map((line) => line.match(/^[ \t]*/)[0].length)
+    var indent = indents.length ? Math.min(...indents) : 0
+    return lines.map((line) => line.slice(indent)).join('\n').trim().replace(/<br\s*\/?>/gi, '<br/>')
+  }
+  // 同源码的重复图分别缓存，避免复用 SVG 时出现重复 ID。
+  var cacheKey = (theme, source, occurrences) => {
+    source = normalizeSource(source)
+    var count = occurrences.get(source) || 0
+    occurrences.set(source, count + 1)
+    return JSON.stringify([theme, source, count])
+  }
+  var prepare = (html) => {
+    var occurrences = new Map()
+    var theme = currentTheme()
+    var previous = Array.from(document.querySelectorAll('pre code.mermaid'))
+    var index = 0
+    return html.replace(/<pre><code class="mermaid">([\s\S]*?)<\/code><\/pre>/gi, (_, encoded) => {
+      var decoder = document.createElement('code')
+      decoder.innerHTML = encoded
+      var source = decoder.textContent
+      var entry = cache.get(cacheKey(theme, source, occurrences))
+      var old = previous[index++]
+      var height = old ? old.parentElement.getBoundingClientRect().height : 0
+      return '<pre' + (!entry && height ? ' style="min-height:' + height + 'px"' : '') +
+        '><code class="mermaid" data-mermaid-source="' + encodeURIComponent(source) + '"' +
+        (entry ? ' data-mermaid-ready="true">' + entry.svg : '>' + encoded) + '</code></pre>'
+    })
+  }
 
   var render = async () => {
     closeViewer()
-    if (loaded) {
-      var definitions = walk(/<pre><code class="mermaid">([\s\S]+?)<\/code><\/pre>/gi, state.html)
-
-      Array.from(document.querySelectorAll('pre code.mermaid')).forEach((diagram, index) => {
-        diagram.removeAttribute('data-processed')
-        diagram.innerHTML = definitions[index]
-      })
-    }
-    var dark =
-      state._themes[state.theme] === 'dark' ||
-      (state._themes[state.theme] === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches)
-    var theme = dark ? 'redux-dark-color' : 'redux-color'
+    var theme = currentTheme()
     var debug = document.documentElement.dataset
     debug.markdownViewerMermaidVersion = '12.0.0'
     debug.markdownViewerMermaidTheme = theme
@@ -267,21 +292,64 @@ var mmd = (() => {
       flowchart: {nodeSpacing: 5, rankSpacing: 5, diagramPadding: 4, padding: 5},
       sequence: {actorMargin: 10, width: 120}
     })
-    var sources = new Map(Array.from(document.querySelectorAll('pre code.mermaid'))
-      .map((diagram) => [diagram, diagram.textContent]))
-    await mermaid.run({querySelector: 'code.mermaid'})
-    loaded = true
+    var sources = new Map()
+    var occurrences = new Map()
+    var nextCache = new Map()
+    var rendered = 0
+    var reused = 0
+    var errors = []
+    for (var node of document.querySelectorAll('pre code.mermaid')) {
+      var source = decodeURIComponent(node.dataset.mermaidSource)
+      sources.set(node, source)
+      var key = cacheKey(theme, source, occurrences)
+      var entry = cache.get(key)
+      var pre = node.parentElement
+      if (cleanups.has(pre)) cleanups.get(pre)()
+      pre.querySelectorAll('.markdown-viewer-diagram-actions').forEach((item) => item.remove())
+      if (entry) {
+        reused++
+      }
+      else {
+        rendered++
+        var id = 'sk-mermaid-' + (++sequence)
+        try {
+          entry = await mermaid.render(id, normalizeSource(source))
+        }
+        catch (error) {
+          document.getElementById('d' + id)?.remove()
+          errors.push(String(error))
+          node.textContent = 'Mermaid 图表错误：' + String(error)
+          node.dataset.mermaidReady = 'true'
+          pre.style.minHeight = ''
+          continue
+        }
+      }
+      node.innerHTML = entry.svg
+      entry.bindFunctions?.(node)
+      node.dataset.mermaidReady = 'true'
+      pre.style.minHeight = ''
+      nextCache.set(key, entry)
+    }
+    cache = nextCache
+    debug.markdownViewerMermaidRendered = String(rendered)
+    debug.markdownViewerMermaidReused = String(reused)
 
     var diagrams = Array.from(document.querySelectorAll('code.mermaid'))
     var svg = Array.from(document.querySelectorAll('pre code.mermaid svg'))
     debug.markdownViewerMermaidCount = String(svg.length)
-    debug.markdownViewerMermaidStatus = svg.length === diagrams.length ? 'ready' : 'incomplete'
+    debug.markdownViewerMermaidStatus = errors.length ? 'error' : svg.length === diagrams.length ? 'ready' : 'incomplete'
+    if (errors.length) debug.markdownViewerMermaidError = errors.join('\n')
     svg.forEach((diagram) => {
       var panzoom = Panzoom(diagram, {canvas: true})
       var pre = diagram.parentElement.parentElement
-      pre.addEventListener('wheel', (e) => {
+      var wheel = (e) => {
         if (!e.shiftKey) return
         panzoom.zoomWithWheel(e)
+      }
+      pre.addEventListener('wheel', wheel)
+      cleanups.set(pre, () => {
+        pre.removeEventListener('wheel', wheel)
+        panzoom.destroy()
       })
       var toolbar = document.createElement('div')
       toolbar.className = 'markdown-viewer-diagram-actions'
@@ -306,6 +374,7 @@ var mmd = (() => {
   }
 
   return {
+    prepare,
     render: () => {
       rendering = rendering.catch(() => {}).then(render).catch((error) => {
         document.documentElement.dataset.markdownViewerMermaidStatus = 'error'

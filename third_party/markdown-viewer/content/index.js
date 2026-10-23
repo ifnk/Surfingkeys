@@ -204,6 +204,7 @@ var render = (md) => {
       state.toc = toc.render(state.html)
     }
     state.html = anchors(state.html)
+    if (state.content.mermaid) state.html = mmd.prepare(state.html)
     m.redraw()
   })
 }

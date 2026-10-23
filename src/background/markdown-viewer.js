@@ -6,7 +6,7 @@ const VIEWER_CONFIG = {
     themes: {width: 'full'},
     compiler: 'markdown-it',
     content: {
-        autoreload: false,
+        autoreload: true,
         emoji: true,
         mathjax: true,
         mermaid: true,
@@ -30,6 +30,7 @@ const VIEWER_SCRIPTS = [
     'vendor/mathjax/tex-mml-chtml.js',
     'content/index.js',
     'content/scroll.js',
+    'content/autoreload.js',
 ];
 
 const isMarkdownUrl = (url) => {

@@ -2,6 +2,10 @@
 /*---------------------------------------------------------------------------*/
 /*global*/
 
+code.mermaid:not([data-mermaid-ready]) {
+  visibility: hidden;
+}
+
 html, body {
   padding: 0 !important; margin: 0 !important;
   width: auto !important; max-width: 100% !important;

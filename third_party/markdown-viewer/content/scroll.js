@@ -48,7 +48,7 @@ var scroll = (() => {
         else {
           var timeout = setInterval(() => {
             var svg = Array.from(document.querySelectorAll('code.mermaid svg'))
-            if (diagrams.length === svg.length) {
+            if (diagrams.length === svg.length || document.documentElement.dataset.markdownViewerMermaidStatus === 'error') {
               clearInterval(timeout)
               resolve()
             }
@@ -104,17 +104,34 @@ var scroll = (() => {
       }
     })
   }
+  var pending = null
+  var restoring = false
+  var readPosition = () => {
+    var top = document.scrollingElement.scrollTop
+    var headings = Array.from(document.querySelectorAll('#_html h1[id], #_html h2[id], #_html h3[id], #_html h4[id], #_html h5[id], #_html h6[id]'))
+    var heading = headings.filter((item) => item.getBoundingClientRect().top <= 1).pop()
+    return {top, id: heading ? heading.id : '', offset: heading ? -heading.getBoundingClientRect().top : 0}
+  }
+  var syncHash = (position) => {
+    var hash = position.id ? '#' + encodeURIComponent(position.id) : ''
+    if (location.hash !== hash) history.replaceState(history.state, '', location.pathname + location.search + hash)
+  }
   var listening = false
-  return (update) => {
+  var restore = (update) => {
     if ($('#_toc') && state.raw) $('#_toc').style.visibility = 'hidden'
     onload(() => {
-      var container = ((html = $('html')) => (
-        html.scrollTop = 1,
-        html.scrollTop ? (html.scrollTop = 0, html) : $('body')
-      ))()
+      var container = document.scrollingElement
 
-      if (!update && location.hash && document.getElementById(location.hash.slice(1))) {
-        get(container, 'md-', document.getElementById(location.hash.slice(1)).offsetTop)
+      if (update && pending) {
+        var heading = document.getElementById(pending.id)
+        container.scrollTop = heading
+          ? container.scrollTop + heading.getBoundingClientRect().top + pending.offset
+          : pending.top
+        pending = null
+      }
+      else if (!update && location.hash && document.getElementById(decodeURIComponent(location.hash.slice(1)))) {
+        var target = document.getElementById(decodeURIComponent(location.hash.slice(1)))
+        container.scrollTop += target.getBoundingClientRect().top
       }
       else {
         get(container, 'md-')
@@ -126,7 +143,18 @@ var scroll = (() => {
 
       if (!listening) {
         listening = true
-        set(container, 'md-')
+        listen(container, () => {
+          if (restoring) return
+          var position = readPosition()
+          var key = 'md-' + location.origin + location.pathname
+          try {
+            localStorage.setItem(key, position.top)
+          }
+          catch (err) {
+            chrome.storage.local.set({[key]: position.top})
+          }
+          syncHash(position)
+        })
         if (state.content.toc) {
           setTimeout(() => set($('#_toc'), 'md-toc-'), 10)
         }
@@ -134,6 +162,13 @@ var scroll = (() => {
 
       if ($('#_html')) $('#_html').style.visibility = 'visible'
       if ($('#_toc') && !state.raw) $('#_toc').style.visibility = 'visible'
+      restoring = false
+      if (update) syncHash(readPosition())
     })
   }
+  restore.capture = () => {
+    pending = readPosition()
+    restoring = true
+  }
+  return restore
 })()
