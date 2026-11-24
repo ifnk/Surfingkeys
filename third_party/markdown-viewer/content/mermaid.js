@@ -319,6 +319,7 @@ var mmd = (() => {
       layout: 'elk',
       startOnLoad: false,
       flowchart: {nodeSpacing: 5, rankSpacing: 5, diagramPadding: 4, padding: 5},
+      journey: {height: 84},
       sequence: {actorMargin: 10, width: 120}
     })
     var sources = new Map()
