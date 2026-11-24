@@ -385,6 +385,16 @@ body.markdown-viewer-diagram-open { overflow: hidden !important; }
   height: 100%;
 }
 
+/* 渲染期间 SVG 还不在 Markdown 代码块内，测量和展示须使用同一项折行规则。 */
+svg[id^="sk-mermaid-"] foreignObject > div[style*="max-width"]:has(> :is(.nodeLabel, .edgeLabel)) {
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+}
+
+.markdown-body code.mermaid foreignObject br {
+  display: inline;
+}
+
 /*mermaid text bold effect*/
 svg[id^=mermaid] text {
   stroke: none !important;

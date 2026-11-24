@@ -247,6 +247,35 @@ var mmd = (() => {
     var indent = indents.length ? Math.min(...indents) : 0
     return lines.map((line) => line.slice(indent)).join('\n').trim().replace(/<br\s*\/?>/gi, '<br/>')
   }
+  // 时序图使用 SVG 文本，布局前需要显式分行。
+  var wrapSequenceLabels = (source) => {
+    if (!/^sequenceDiagram\b/m.test(source)) return source
+
+    var segmenter = new Intl.Segmenter('zh', {granularity: 'word'})
+    var context = document.createElement('canvas').getContext('2d')
+    if (!context) return source
+    context.font = '400 16px "trebuchet ms", verdana, arial, sans-serif'
+    return source.replace(/^([^:\n]+:[ \t]*)([^\n]*)$/gm, (line, prefix, label) => {
+      if (!/^\s*note\s+(?:over|left of|right of)\s/i.test(prefix) && !/-(?:>|x|\))/.test(prefix)) return line
+      if (!/\p{Script=Han}/u.test(label) || /[<>`]|\$\$|&[^;]+;/u.test(label)) return line
+
+      var lines = []
+      var current = ''
+      for (var {segment} of segmenter.segment(label)) {
+        if (/^\s+$/u.test(segment) || /^[，。！？；：、）】》」』]/u.test(segment)) {
+          current += segment
+          continue
+        }
+        if (current.trim() && context.measureText(current + segment).width > 260) {
+          lines.push(current.trimEnd())
+          current = ''
+        }
+        current += segment
+      }
+      lines.push(current.trimEnd())
+      return prefix + lines.join('<br/>')
+    })
+  }
   // 同源码的重复图分别缓存，避免复用 SVG 时出现重复 ID。
   var cacheKey = (theme, source, occurrences) => {
     source = normalizeSource(source)
@@ -313,7 +342,7 @@ var mmd = (() => {
         rendered++
         var id = 'sk-mermaid-' + (++sequence)
         try {
-          entry = await mermaid.render(id, normalizeSource(source))
+          entry = await mermaid.render(id, wrapSequenceLabels(normalizeSource(source)))
         }
         catch (error) {
           document.getElementById('d' + id)?.remove()
